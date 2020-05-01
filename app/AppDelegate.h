@@ -10,7 +10,10 @@
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 
 @property (strong, nonatomic) UIWindow *window;
+- (void)exitApp;
+
++ (int)bootError;
 
 @end
 
-extern NSString *const ISHExitedNotification;
+extern NSString *const ProcessExitedNotification;

@@ -171,10 +171,10 @@
     .irp reg, si,di,sp,bp
         .gadget \op\size\()_reg_\reg
             .if \size == 8
-                .ifc \reg,sp N do_hi_op \op, \size, a N .else
-                .ifc \reg,bp N do_hi_op \op, \size, c N .else
-                .ifc \reg,si N do_hi_op \op, \size, d N .else
-                .ifc \reg,di N do_hi_op \op, \size, b
+                .ifc \reg,sp N do_hi_op \armop, \size, a N .else
+                .ifc \reg,bp N do_hi_op \armop, \size, c N .else
+                .ifc \reg,si N do_hi_op \armop, \size, d N .else
+                .ifc \reg,di N do_hi_op \armop, \size, b
                 .endif N .endif N .endif N .endif
             .else
                 do_op \armop, \size, e\reg
@@ -275,7 +275,7 @@
                 cset w9, ne
             .endif
             strb w9, [_cpu, CPU_of]
-            setf_zsp \s
+            setf_zsp \s, val=w8
         .endifin
 
     2:

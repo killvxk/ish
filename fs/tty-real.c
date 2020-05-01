@@ -8,6 +8,10 @@
 
 #include "kernel/calls.h"
 #include "fs/tty.h"
+#include "fs/devices.h"
+
+// Only /dev/tty1 will be connected, the rest will go to a black hole.
+#define REAL_TTY_NUM 1
 
 static void real_tty_read_thread(struct tty *tty) {
     char ch;
@@ -23,7 +27,7 @@ static void real_tty_read_thread(struct tty *tty) {
             // ^\ (so ^C still works for emulated SIGINT)
             raise(SIGINT);
         }
-        tty_input(tty, &ch, 1);
+        tty_input(tty, &ch, 1, 0);
     }
 }
 
@@ -45,6 +49,7 @@ static struct termios_ termios_from_real(struct termios real) {
     FLAG(l, ECHO);
     FLAG(l, ECHOE);
     FLAG(l, ECHOK);
+    FLAG(l, NOFLSH);
     FLAG(l, ECHOCTL);
 #undef FLAG
 
@@ -71,7 +76,10 @@ static struct termios_ termios_from_real(struct termios real) {
 }
 
 static struct termios old_termios;
-int real_tty_open(struct tty *tty) {
+int real_tty_init(struct tty *tty) {
+    if (tty->num != REAL_TTY_NUM)
+        return 0;
+
     struct winsize winsz;
     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &winsz) < 0) {
         if (errno == ENOTTY)
@@ -104,18 +112,23 @@ notty:
     return 0;
 }
 
-ssize_t real_tty_write(struct tty *tty, const void *buf, size_t len) {
+int real_tty_write(struct tty *tty, const void *buf, size_t len, bool UNUSED(blocking)) {
+    if (tty->num != REAL_TTY_NUM)
+        return len;
     return write(STDOUT_FILENO, buf, len);
 }
 
-void real_tty_close(struct tty *tty) {
+void real_tty_cleanup(struct tty *tty) {
+    if (tty->num != REAL_TTY_NUM)
+        return;
     if (tcsetattr(STDIN_FILENO, TCSANOW, &old_termios) < 0 && errno != ENOTTY)
         ERRNO_DIE("failed to reset terminal");
     pthread_cancel(tty->thread);
 }
 
-struct tty_driver real_tty_driver = {
-    .open = real_tty_open,
+struct tty_driver_ops real_tty_ops = {
+    .init = real_tty_init,
     .write = real_tty_write,
-    .close = real_tty_close,
+    .cleanup = real_tty_cleanup,
 };
+DEFINE_TTY_DRIVER(real_tty_driver, &real_tty_ops, TTY_CONSOLE_MAJOR, 64);

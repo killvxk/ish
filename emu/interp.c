@@ -33,6 +33,7 @@ static bool modrm_compute(struct cpu_state *cpu, struct tlb *tlb, addr_t *addr_o
     }
 #define READADDR READIMM_(addr_offset, 32); addr += addr_offset
 
+#define RESTORE_IP cpu->eip = saved_ip
 #define _READIMM(name,size) \
     name = mem_read(cpu->eip, size); \
     cpu->eip += size/8
@@ -348,6 +349,9 @@ static bool modrm_compute(struct cpu_state *cpu, struct tlb *tlb, addr_t *addr_o
         SETRESFLAGS; \
     }
 
+#define RCR(count, val,z) UNDEFINED
+#define RCL(count, val,z) UNDEFINED
+
 #define SHLD(count, extra, dst,z) \
     if (get(count,8) % z != 0) { \
         int cnt = get(count,8) % z; \
@@ -556,8 +560,15 @@ static bool modrm_compute(struct cpu_state *cpu, struct tlb *tlb, addr_t *addr_o
 #define ATOMIC_DEC DEC
 #define ATOMIC_CMPXCHG CMPXCHG
 #define ATOMIC_XADD XADD
-#include "emu/interp/sse.h"
+#define ATOMIC_BTS BTS
+#define ATOMIC_BTR BTR
+#define ATOMIC_BTC BTC
+
 #include "emu/interp/fpu.h"
+
+// fake sse
+#define VLOAD(src, dst,z) UNDEFINED
+#define VSTORE(src, dst,z) UNDEFINED
 
 // ok now include the decoding function
 #define DECODER_RET int

@@ -32,11 +32,14 @@ struct newstat64 stat_convert_newstat64(struct statbuf stat) {
 
 int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, bool follow_links) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, follow_links);
+    int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
-    return mount->fs->stat(mount, path, stat, follow_links);
+    memset(stat, 0, sizeof(*stat));
+    err = mount->fs->stat(mount, path, stat);
+    mount_release(mount);
+    return err;
 }
 
 // TODO get rid of this and maybe everything else in the file
@@ -81,7 +84,7 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
     struct fd *fd = f_get(fd_no);
     if (fd == NULL)
         return _EBADF;
-    struct statbuf stat;
+    struct statbuf stat = {};
     int err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0)
         return err;

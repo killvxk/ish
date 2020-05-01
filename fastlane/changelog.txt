@@ -1,19 +1,21 @@
-Now working:
-- SSH client (to make it work, you'll need to run `mknod /dev/tty c 5 0`)
-- ffmpeg (no more "Unknown encoder: 'copy'")
-- Server sockets, like now you can run python3 -m http.server and browse your files from another device
-- tar (sorry I broke it)
-- lynx (this was working in the last build too but I only just realized)
-- Ruby REPL (large programs will assert in the garbage collector though)
+New stuff:
+- Half-broken tmpfs implementation
+- Caps lock mapping is now gone on iOS 13, because 13.4 adds a system-wide option
+- Kerberos works
+- AltStore installation is officially supported
+- adb works for connecting to Android devices over the network (not USB)
+- Added a way to fix your iSH setup if you mess up the launch/boot commands
 
-Also a bunch of general fixes:
-- Signals not being blocked while the signal handler is running
-- Orphaned processes not being reparented to init
-- Git doing strange things when it gets a signal
-- Copy button on iOS not existing
-- Segfault when trying to run a binary that requires glibc
+Fixed bugs:
+- ceil(3) returning 4
+- R's nlm demo crashing
+- fish having some trouble changing process groups
+- git clone failing dramatically when your device only has one CPU
+- SO_ERROR codes not being translated
+- Java sockets failing with "not a tty"
 
-Send bug reports or feedback here: https://github.com/tbodt/ish/issues
+Send bug reports or feedback here: https://github.com/tbodt/ish/issues (or by email, if you prefer)
+Follow iSH on Twitter: https://twitter.com/iSH_app
 Join the Discord: https://discord.gg/SndDh5y
-Give me money: https://patreon.com/tbodt
+Give me money here: https://patreon.com/tbodt
 

@@ -8,21 +8,33 @@
 #import "UIApplication+OpenURL.h"
 #import "AboutViewController.h"
 #import "UserPreferences.h"
+#import "AppGroup.h"
 
 @interface AboutViewController ()
+@property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
+@property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
+@property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
+@property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
+@property (weak, nonatomic) IBOutlet UITextField *bootCommandField;
+
 @property (weak, nonatomic) IBOutlet UITableViewCell *sendFeedback;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openGithub;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openTwitter;
-@property (weak, nonatomic) IBOutlet UITableViewCell *fontSizeCell;
-@property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
-@property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
+@property (weak, nonatomic) IBOutlet UITableViewCell *openDiscord;
+
+@property (weak, nonatomic) IBOutlet UITableViewCell *exportContainerCell;
+
 @end
 
 @implementation AboutViewController
 
+- (void)awakeFromNib {
+    [super awakeFromNib];
+    [self _addObservers];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [self _addObservers];
     [self _updatePreferenceUI];
 }
 
@@ -36,16 +48,16 @@
     
     [prefs addObserver:self forKeyPath:@"capsLockMapping" options:opts context:nil];
     [prefs addObserver:self forKeyPath:@"fontSize" options:opts context:nil];
-    [prefs addObserver:self forKeyPath:@"theme" options:opts context:nil];
+    [prefs addObserver:self forKeyPath:@"launchCommand" options:opts context:nil];
+    [prefs addObserver:self forKeyPath:@"bootCommand" options:opts context:nil];
 }
 
 - (void)_removeObservers {
-    @try {
-        UserPreferences *prefs = [UserPreferences shared];
-        [prefs removeObserver:self forKeyPath:@"capsLockMapping"];
-        [prefs removeObserver:self forKeyPath:@"fontSize"];
-        [prefs removeObserver:self forKeyPath:@"theme"];
-    } @catch (NSException * __unused exception) {}
+    UserPreferences *prefs = [UserPreferences shared];
+    [prefs removeObserver:self forKeyPath:@"capsLockMapping"];
+    [prefs removeObserver:self forKeyPath:@"fontSize"];
+    [prefs removeObserver:self forKeyPath:@"launchCommand"];
+    [prefs removeObserver:self forKeyPath:@"bootCommand"];
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
@@ -57,55 +69,56 @@
 }
 
 - (void)_updatePreferenceUI {
-    UserPreferences *prefs = [UserPreferences shared];
-    self.fontSizeCell.detailTextLabel.text = prefs.fontSize.stringValue;
+    UserPreferences *prefs = UserPreferences.shared;
     self.themeCell.detailTextLabel.text = prefs.theme.presetName;
-    NSString *capsLockMappingDescr;
-    switch (prefs.capsLockMapping) {
-        case CapsLockMapNone:
-            capsLockMappingDescr = @"None"; break;
-        case CapsLockMapControl:
-            capsLockMappingDescr = @"Control"; break;
-        case CapsLockMapEscape:
-            capsLockMappingDescr = @"Escape"; break;
-    }
-    self.capsLockMappingCell.detailTextLabel.text = capsLockMappingDescr;
+    self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
+    self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
+    self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
     if (cell == self.sendFeedback) {
-        [UIApplication openURL:@"mailto:tblodt@icloud.com"];
+        [UIApplication openURL:@"mailto:tblodt@icloud.com?subject=Feedback%20for%20iSH"];
     } else if (cell == self.openGithub) {
-        [UIApplication openURL:@"https://github.com/tbodt/ish"];
+        [UIApplication openURL:@"https://github.com/ish-app/ish"];
     } else if (cell == self.openTwitter) {
         [UIApplication openURL:@"https://twitter.com/tblodt"];
-    } else if (cell == self.fontSizeCell) {
-        [self _showInputForCell:cell];
+    } else if (cell == self.openDiscord) {
+        [UIApplication openURL:@"https://discord.gg/SndDh5y"];
+    } else if (cell == self.exportContainerCell) {
+        // copy the files to the app container so they can be extracted from iTunes file sharing
+        NSURL *container = ContainerURL();
+        NSURL *documents = [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask][0];
+        [NSFileManager.defaultManager removeItemAtURL:[documents URLByAppendingPathComponent:@"roots copy"] error:nil];
+        [NSFileManager.defaultManager copyItemAtURL:[container URLByAppendingPathComponent:@"roots"]
+                                              toURL:[documents URLByAppendingPathComponent:@"roots copy"]
+                                              error:nil];
     }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
-- (void)_showInputForCell:(UITableViewCell *)cell {
-    UIAlertController *alert = [UIAlertController
-                                alertControllerWithTitle:cell.textLabel.text
-                                message:nil
-                                preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
-        textField.placeholder = cell.detailTextLabel.text;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        
-        NSString *value = [[[alert textFields] firstObject] text];
-        UserPreferences *prefs = [UserPreferences shared];
-        NSUInteger fontSize = [value integerValue];
-        
-        if (fontSize) {
-            [prefs setFontSize:@(fontSize)];
-        }
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+    NSInteger sections = [super numberOfSectionsInTableView:tableView];
+    if (!self.includeDebugPanel)
+        sections--;
+    return sections;
+}
+
+- (IBAction)disableDimmingChanged:(id)sender {
+    UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
+}
+
+- (IBAction)textBoxSubmit:(id)sender {
+    [sender resignFirstResponder];
+}
+
+- (IBAction)launchCommandChanged:(id)sender {
+    UserPreferences.shared.launchCommand = [self.launchCommandField.text componentsSeparatedByString:@" "];
+}
+
+- (IBAction)bootCommandChanged:(id)sender {
+    UserPreferences.shared.bootCommand = [self.bootCommandField.text componentsSeparatedByString:@" "];
 }
 
 @end

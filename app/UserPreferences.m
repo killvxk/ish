@@ -9,9 +9,14 @@
 #import "UserPreferences.h"
 
 static NSString *const kPreferenceCapsLockMappingKey = @"Caps Lock Mapping";
+static NSString *const kPreferenceOptionMappingKey = @"Option Mapping";
+static NSString *const kPreferenceBacktickEscapeKey = @"Backtick Mapping Escape";
+static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
 static NSString *const kPreferenceThemeKey = @"Theme";
-static NSString *const kPreferenceBackgroundKey = @"Background Color";
+static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
+NSString *const kPreferenceLaunchCommandKey = @"Init Command";
+NSString *const kPreferenceBootCommandKey = @"Boot Command";
 
 @implementation UserPreferences {
     NSUserDefaults *_defaults;
@@ -31,10 +36,17 @@ static NSString *const kPreferenceBackgroundKey = @"Background Color";
     if (self) {
         _defaults = [NSUserDefaults standardUserDefaults];
         Theme *defaultTheme = [Theme presetThemeNamed:@"Light"];
-        [_defaults registerDefaults:@{kPreferenceFontSizeKey: @(12),
-                                      kPreferenceThemeKey: defaultTheme.properties,
-                                      kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
-                                      }];
+        [_defaults registerDefaults:@{
+            kPreferenceFontFamilyKey: @"Menlo",
+            kPreferenceFontSizeKey: @(12),
+            kPreferenceThemeKey: defaultTheme.properties,
+            kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
+            kPreferenceOptionMappingKey: @(OptionMapNone),
+            kPreferenceBacktickEscapeKey: @(NO),
+            kPreferenceDisableDimmingKey: @(NO),
+            kPreferenceLaunchCommandKey: @[@"/bin/login", @"-f", @"root"],
+            kPreferenceBootCommandKey: @[@"/sbin/init"],
+        }];
         _theme = [[Theme alloc] initWithProperties:[_defaults objectForKey:kPreferenceThemeKey]];
     }
     return self;
@@ -43,23 +55,41 @@ static NSString *const kPreferenceBackgroundKey = @"Background Color";
 - (CapsLockMapping)capsLockMapping {
     return [_defaults integerForKey:kPreferenceCapsLockMappingKey];
 }
-
 - (void)setCapsLockMapping:(CapsLockMapping)capsLockMapping {
     [_defaults setInteger:capsLockMapping forKey:kPreferenceCapsLockMappingKey];
+}
+
+- (OptionMapping)optionMapping {
+    return [_defaults integerForKey:kPreferenceOptionMappingKey];
+}
+- (void)setOptionMapping:(OptionMapping)optionMapping {
+    [_defaults setInteger:optionMapping forKey:kPreferenceOptionMappingKey];
+}
+
+- (BOOL)backtickMapEscape {
+    return [_defaults boolForKey:kPreferenceBacktickEscapeKey];
+}
+- (void)setBacktickMapEscape:(BOOL)backtickMapEscape {
+    [_defaults setBool:backtickMapEscape forKey:kPreferenceBacktickEscapeKey];
 }
 
 - (NSNumber *)fontSize {
     return [_defaults objectForKey:kPreferenceFontSizeKey];
 }
-
 - (void)setFontSize:(NSNumber *)fontSize {
     [_defaults setObject:fontSize forKey:kPreferenceFontSizeKey];
+}
+
+- (NSString *)fontFamily {
+    return [_defaults objectForKey:kPreferenceFontFamilyKey];
+}
+- (void)setFontFamily:(NSString *)fontFamily {
+    [_defaults setObject:fontFamily forKey:kPreferenceFontFamilyKey];
 }
 
 - (UIColor *)foregroundColor {
     return self.theme.foregroundColor;
 }
-
 - (UIColor *)backgroundColor {
     return self.theme.backgroundColor;
 }
@@ -67,6 +97,31 @@ static NSString *const kPreferenceBackgroundKey = @"Background Color";
 - (void)setTheme:(Theme *)theme {
     _theme = theme;
     [_defaults setObject:theme.properties forKey:kPreferenceThemeKey];
+}
+
+- (BOOL)shouldDisableDimming {
+    return [_defaults boolForKey:kPreferenceDisableDimmingKey];
+}
+- (void)setShouldDisableDimming:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceDisableDimmingKey];
+}
+
+- (NSArray<NSString *> *)launchCommand {
+    return [_defaults stringArrayForKey:kPreferenceLaunchCommandKey];
+}
+- (void)setLaunchCommand:(NSArray<NSString *> *)launchCommand {
+    [_defaults setObject:launchCommand forKey:kPreferenceLaunchCommandKey];
+}
+- (BOOL)hasChangedLaunchCommand {
+    NSArray *defaultLaunchCommand = [[[NSUserDefaults alloc] initWithSuiteName:NSRegistrationDomain] stringArrayForKey:kPreferenceLaunchCommandKey];
+    return ![self.launchCommand isEqual:defaultLaunchCommand];
+}
+
+- (NSArray<NSString *> *)bootCommand {
+    return [_defaults stringArrayForKey:kPreferenceBootCommandKey];
+}
+- (void)setBootCommand:(NSArray<NSString *> *)bootCommand {
+    [_defaults setObject:bootCommand forKey:kPreferenceBootCommandKey];
 }
 
 @end
@@ -133,11 +188,13 @@ NSDictionary<NSString *, Theme *> *presetThemes;
     presetThemes = @{@"Light": [self _themeWithForegroundColor:UIColor.blackColor
                                                backgroundColor:UIColor.whiteColor],
                      @"Dark":  [self _themeWithForegroundColor:UIColor.whiteColor
+                                               backgroundColor:UIColor.blackColor],
+                     @"1337":  [self _themeWithForegroundColor:UIColor.greenColor
                                                backgroundColor:UIColor.blackColor]};
 }
 
 + (NSArray<NSString *> *)presetNames {
-    return @[@"Light", @"Dark"];
+    return @[@"Light", @"Dark", @"1337"];
 }
 + (instancetype)presetThemeNamed:(NSString *)name {
     return presetThemes[name];

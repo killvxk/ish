@@ -39,6 +39,7 @@ static inline int step(int pid) {
     trycall(waitpid(pid, &status, 0), "wait step");
     if (WIFSTOPPED(status) && WSTOPSIG(status) != SIGTRAP) {
         int signal = WSTOPSIG(status);
+        printk("child received signal %d\n", signal);
         // a signal arrived, we now have to actually deliver it
         trycall(ptrace(PTRACE_SINGLESTEP, pid, NULL, signal), "ptrace step");
         trycall(waitpid(pid, &status, 0), "wait step");
@@ -91,8 +92,8 @@ static int compare_cpus(struct cpu_state *cpu, struct tlb *tlb, int pid, int und
         return -1;
     }
 #define CHECK_XMMREG(i) \
-    CHECK(*(uint64_t *) &fpregs.xmm_space[i * 2],   cpu->xmm[i].qw[0], "xmm" #i " low") \
-    CHECK(*(uint64_t *) &fpregs.xmm_space[(i+1)*2], cpu->xmm[i].qw[1], "xmm" #i " high")
+    CHECK(*(uint64_t *) &fpregs.xmm_space[i * 4],   cpu->xmm[i].qw[0], "xmm" #i " low") \
+    CHECK(*(uint64_t *) &fpregs.xmm_space[i*4+2], cpu->xmm[i].qw[1], "xmm" #i " high")
     CHECK_XMMREG(0);
     CHECK_XMMREG(1);
     CHECK_XMMREG(2);
@@ -254,7 +255,7 @@ static void pt_copy_to_real(int pid, addr_t start, size_t size) {
 static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int sender, int receiver) {
     // step fake cpu
     cpu->tf = 1;
-    int changes = cpu->mem->changes;
+    unsigned changes = cpu->mem->changes;
     int interrupt = cpu_step32(cpu, tlb);
     if (interrupt != INT_NONE) {
         cpu->trapno = interrupt;
@@ -310,7 +311,7 @@ static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int se
             case 54: { // ioctl (god help us)
                 struct fd *fd = f_get(cpu->ebx);
                 if (fd && fd->ops->ioctl_size) {
-                    ssize_t ioctl_size = fd->ops->ioctl_size(fd, cpu->ecx);
+                    ssize_t ioctl_size = fd->ops->ioctl_size(cpu->ecx);
                     if (ioctl_size >= 0)
                         pt_copy(pid, regs.rdx, ioctl_size);
                 }
@@ -347,7 +348,7 @@ static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int se
             case 140: // _llseek
                 pt_copy(pid, regs.rsi, 8); break;
             case 145: { // readv
-                struct io_vec vecs[regs.rdx];
+                struct iovec_ vecs[regs.rdx];
                 (void) user_get(regs.rcx, vecs);
                 for (unsigned i = 0; i < regs.rdx; i++)
                     pt_copy(pid, vecs[i].base, vecs[i].len);
@@ -359,20 +360,22 @@ static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int se
                 pt_copy(pid, regs.rbx, sizeof(struct pollfd_) * regs.rcx); break;
             case 183: // getcwd
                 pt_copy(pid, regs.rbx, cpu->eax); break;
-
             case 195: // stat64
             case 196: // lstat64
             case 197: // fstat64
                 pt_copy(pid, regs.rcx, sizeof(struct newstat64)); break;
-            case 300: // fstatat64
-                pt_copy(pid, regs.rdx, sizeof(struct newstat64)); break;
             case 220: // getdents64
                 pt_copy(pid, regs.rcx, cpu->eax); break;
+            case 242: // sched_getaffinity
+                pt_copy(pid, regs.rdx, regs.rcx); break;
             case 265: // clock_gettime
                 pt_copy(pid, regs.rcx, sizeof(struct timespec_)); break;
-	    case 340: // prlimit
-		if (regs.rsi != 0) pt_copy(pid, regs.rsi, sizeof(struct rlimit_)); break;
-
+            case 300: // fstatat64
+                pt_copy(pid, regs.rdx, sizeof(struct newstat64)); break;
+            case 305: // readlinkat
+                if (cpu->eax < 0xffff000) pt_copy(pid, regs.rdx, cpu->eax); break;
+            case 340: // prlimit
+                if (regs.rsi != 0) pt_copy(pid, regs.rsi, sizeof(struct rlimit_)); break;
             case 355: // getrandom
                 pt_copy(pid, regs.rbx, regs.rcx); break;
 
@@ -388,11 +391,13 @@ static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int se
             // some syscalls need to just happen
             case 45: // brk
             case 91: // munmap
+            case 119: // sigreturn
             case 125: // mprotect
             case 173: // rt_sigreturn
             case 174: // rt_sigaction
             case 175: // rt_sigprocmask
             case 243: // set_thread_area
+                //regs.rax = cpu->eax;
                 goto do_step;
         }
         regs.rax = cpu->eax;
@@ -454,7 +459,10 @@ static void prepare_tracee(int pid) {
 }
 
 int main(int argc, char *const argv[]) {
-    int err = xX_main_Xx(argc, argv, NULL);
+    char envp[100] = {0};
+    if (getenv("TERM"))
+        strcpy(envp, getenv("TERM") - strlen("TERM") - 1);
+    int err = xX_main_Xx(argc, argv, envp);
     if (err < 0) {
         fprintf(stderr, "%s\n", strerror(-err));
         return err;
@@ -462,7 +470,7 @@ int main(int argc, char *const argv[]) {
 
     // execute the traced program in a new process and throw up some sockets
     char exec_path[MAX_PATH];
-    if (path_normalize(AT_PWD, argv[optind], exec_path, true) != 0) {
+    if (path_normalize(AT_PWD, argv[optind], exec_path, N_SYMLINK_FOLLOW) != 0) {
         fprintf(stderr, "enametoolong\n"); exit(1);
     }
     struct mount *mount = find_mount_and_trim_path(exec_path);
@@ -480,12 +488,11 @@ int main(int argc, char *const argv[]) {
     struct cpu_state old_cpu = *cpu;
     int i = 0;
     while (true) {
-        if (compare_cpus(cpu, &tlb, pid, undefined_flags) < 0) {
+        while (compare_cpus(cpu, &tlb, pid, undefined_flags) < 0) {
             printk("failure: resetting cpu\n");
             *cpu = old_cpu;
             __asm__("int3");
             cpu_step32(cpu, &tlb);
-            return -1;
         }
         undefined_flags = undefined_flags_mask(cpu, &tlb);
         old_cpu = *cpu;

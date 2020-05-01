@@ -2,31 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>StringsTable</key>
-	<string>Root</string>
 	<key>PreferenceSpecifiers</key>
 	<array>
 		<dict>
 			<key>Type</key>
-			<string>PSMultiValueSpecifier</string>
+			<string>PSGroupSpecifier</string>
+			<key>FooterText</key>
+			<string>Danger zone: Only touch this if you know what you&apos;re doing but you messed up anyway</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
-			<string>Map Caps Lock</string>
+			<string>Reset launch and boot commands</string>
 			<key>Key</key>
-			<string>kiSHCapsLockMapping</string>
+			<string>hail mary</string>
 			<key>DefaultValue</key>
-			<string>none</string>
-			<key>Titles</key>
-			<array>
-				<string>none</string>
-				<string>esc</string>
-				<string>ctrl</string>
-			</array>
-			<key>Values</key>
-			<array>
-				<string>none</string>
-				<string>esc</string>
-				<string>ctrl</string>
-			</array>
+			<false/>
 		</dict>
 	</array>
 </dict>

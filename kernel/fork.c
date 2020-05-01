@@ -3,6 +3,7 @@
 #include "fs/fd.h"
 #include "kernel/calls.h"
 #include "fs/tty.h"
+#include "kernel/mm.h"
 
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
@@ -35,37 +36,33 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
     *group = *old_group;
     list_init(&group->threads);
-    lock(&pids_lock);
     list_add(&old_group->pgroup, &group->pgroup);
     list_add(&old_group->session, &group->session);
-    unlock(&pids_lock);
-    group->tty->refcount++;
-    group->has_timer = false;
+    if (group->tty) {
+        lock(&group->tty->lock);
+        group->tty->refcount++;
+        unlock(&group->tty->lock);
+    }
     group->timer = NULL;
     group->doing_group_exit = false;
     group->children_rusage = (struct rusage_) {};
     cond_init(&group->child_exit);
+    cond_init(&group->stopped_cond);
     lock_init(&group->lock);
     return group;
 }
 
 static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid_addr, addr_t tls_addr, addr_t ctid_addr) {
-    task->vfork_done = false;
+    task->vfork = NULL;
     if (stack != 0)
         task->cpu.esp = stack;
 
     int err;
-    struct mem *mem = task->mem;
+    struct mm *mm = task->mm;
     if (flags & CLONE_VM_) {
-        mem_retain(mem);
+        mm_retain(mm);
     } else {
-        task->mem = task->cpu.mem = mem_new();
-        task->mem->vdso = mem->vdso;
-        task->mem->brk = mem->brk;
-        task->mem->start_brk = mem->start_brk;
-        write_wrlock(&mem->lock);
-        pt_copy_on_write(mem, 0, task->mem, 0, MEM_PAGES);
-        write_wrunlock(&mem->lock);
+        task_set_mm(task, mm_copy(mm));
     }
 
     if (flags & CLONE_FILES_) {
@@ -96,6 +93,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
+    lock(&pids_lock);
     lock(&old_group->lock);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);
@@ -104,6 +102,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
     list_add(&task->group->threads, &task->group_links);
     unlock(&old_group->lock);
+    unlock(&pids_lock);
 
     if (flags & CLONE_SETTLS_) {
         err = task_set_thread_area(task, tls_addr);
@@ -120,6 +119,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
             goto fail_free_sighand;
     if (flags & CLONE_CHILD_CLEARTID_)
         task->clear_tid = ctid_addr;
+    task->exit_signal = flags & CSIGNAL_;
 
     // remember to do CLONE_SYSVSEM
     return 0;
@@ -131,7 +131,7 @@ fail_free_fs:
 fail_free_files:
     fdtable_release(task->files);
 fail_free_mem:
-    mem_release(task->mem);
+    mm_release(task->mm);
     return err;
 }
 
@@ -151,19 +151,37 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         return _ENOMEM;
     int err = copy_task(task, flags, stack, ptid, tls, ctid);
     if (err < 0) {
+        // FIXME: there is a window between task_create_ and task_destroy where
+        // some other thread could get a pointer to the task.
+        // FIXME: task_destroy doesn't free all aspects of the task, which
+        // could cause leaks
+        lock(&pids_lock);
         task_destroy(task);
+        unlock(&pids_lock);
         return err;
     }
     task->cpu.eax = 0;
+
+    struct vfork_info vfork;
+    if (flags & CLONE_VFORK_) {
+        lock_init(&vfork.lock);
+        cond_init(&vfork.cond);
+        vfork.done = false;
+        task->vfork = &vfork;
+    }
+
     // task might be destroyed by the time we finish, so save the pid
     pid_t pid = task->pid;
     task_start(task);
 
     if (flags & CLONE_VFORK_) {
-        lock(&task->vfork_lock);
-        while (!task->vfork_done)
-            wait_for_ignore_signals(&task->vfork_cond, &task->vfork_lock, NULL);
-        unlock(&task->vfork_lock);
+        lock(&vfork.lock);
+        while (!vfork.done)
+            // FIXME this should stop waiting if a fatal signal is received
+            wait_for_ignore_signals(&vfork.cond, &vfork.lock, NULL);
+        unlock(&vfork.lock);
+        task->vfork = NULL;
+        cond_destroy(&vfork.cond);
     }
     return pid;
 }
@@ -177,8 +195,10 @@ dword_t sys_vfork() {
 }
 
 void vfork_notify(struct task *task) {
-    lock(&task->vfork_lock);
-    task->vfork_done = true;
-    notify(&task->vfork_cond);
-    unlock(&task->vfork_lock);
+    if (task->vfork) {
+        lock(&task->vfork->lock);
+        task->vfork->done = true;
+        notify(&task->vfork->cond);
+        unlock(&task->vfork->lock);
+    }
 }

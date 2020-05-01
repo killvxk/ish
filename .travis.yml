@@ -2,26 +2,28 @@ macros:
     - &linux
       language: c
       os: linux
+      dist: bionic
       compiler: clang
+      addons:
+          apt:
+              packages:
+                  - ninja-build
       install:
           - source ~/virtualenv/python3.6/bin/activate
           - pip install meson
-            # ok now I have to get a newer version of ninja than 1.3.1 which is the latest
-            # you can get from trusty *sigh*
-          - curl -LO https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip
-          - unzip ninja-linux.zip ninja -d ~/bin
       script:
           - meson build $MESON_OPTS
-          - ninja -C build
+          - ninja -C build $NINJA_TARGET
 
 matrix:
     include:
         - <<: *linux
-          env: MESON_OPTS=-Djit=true
-        - <<: *linux
-          env: MESON_OPTS=-Djit=false
+          env:
+              - MESON_OPTS=-Dengine=jit
+              - NINJA_TARGET=test
         - language: objective-c
-          osx_image: xcode10.1
+          os: osx
+          osx_image: xcode11
           install:
               - pip3 install meson
           addons:
@@ -29,9 +31,6 @@ matrix:
                   packages:
                       - ninja
                       - llvm
-                      - yarn
+                  update: true
           script:
               - xcodebuild -project iSH.xcodeproj -scheme iSH -sdk iphoneos CODE_SIGNING_ALLOWED=NO
-    exclude:
-        - language: objective-c
-          env: MESON_OPTS=-Djit=false

@@ -40,11 +40,11 @@ struct task *pid_get_task(dword_t id) {
 
 struct task *task_create_(struct task *parent) {
     lock(&pids_lock);
-    static int cur_pid = 1;
-    while (!pid_empty(&pids[cur_pid])) {
+    static int cur_pid = 0;
+    do {
         cur_pid++;
-        if (cur_pid > MAX_PID) cur_pid = 0;
-    }
+        if (cur_pid > MAX_PID) cur_pid = 1;
+    } while (!pid_empty(&pids[cur_pid]));
     struct pid *pid = &pids[cur_pid];
     pid->id = cur_pid;
     list_init(&pid->session);
@@ -58,28 +58,35 @@ struct task *task_create_(struct task *parent) {
         *task = *parent;
     task->pid = pid->id;
     pid->task = task;
-    unlock(&pids_lock);
 
-    task->did_exec = false;
     list_init(&task->children);
     list_init(&task->siblings);
     if (parent != NULL) {
         task->parent = parent;
         list_add(&parent->children, &task->siblings);
     }
+    unlock(&pids_lock);
 
-    lock_init(&task->vfork_lock);
-    cond_init(&task->vfork_cond);
+    task->pending = 0;
+    list_init(&task->queue);
+    task->clear_tid = 0;
+    task->robust_list = 0;
+    task->did_exec = false;
+    lock_init(&task->general_lock);
+
+    task->sockrestart = (struct task_sockrestart) {};
+    list_init(&task->sockrestart.listen);
+
     task->waiting_cond = NULL;
     task->waiting_lock = NULL;
     lock_init(&task->waiting_cond_lock);
+    cond_init(&task->pause);
     return task;
 }
 
 void task_destroy(struct task *task) {
     list_remove(&task->siblings);
     pid_get(task->pid)->task = NULL;
-    cond_destroy(&task->vfork_cond);
     free(task);
 }
 
@@ -106,6 +113,7 @@ void task_start(struct task *task) {
 }
 
 int_t sys_sched_yield() {
+    STRACE("sched_yield()");
     sched_yield();
     return 0;
 }
